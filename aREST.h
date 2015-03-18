@@ -64,7 +64,7 @@
 
 // Debug mode
 #ifndef DEBUG_MODE
-#define DEBUG_MODE 0
+#define DEBUG_MODE 1
 #endif
 
 // Use light answer mode
@@ -204,6 +204,19 @@ void handle(EthernetClient& client){
   }
 }
 
+#elif defined(EtherCard_h)
+void handle(EtherCard& client)
+{
+	// Handle request
+	handle_proto(client, true, 0);
+
+	// Answer
+	sendBuffer(client);
+
+	// Reset variables for the next command
+	reset_status();
+}
+
 // Handle request for the Arduino Ethernet shield
 #elif defined(WiFi_h)
 void handle(WiFiClient& client){
@@ -280,6 +293,24 @@ void handle_proto(char * string) {
 
   // Send command
   send_command(false);
+}
+
+void handle_proto(EtherCard& serial, bool headers, uint8_t read_delay)
+{
+	for (int i = serial.tcpOffset()-serial.buffer; i < serial.bufferSize; i++)
+	{
+		// Get the server answer
+		char c = (char)serial.buffer[i];
+		delay(read_delay);
+		answer = answer + c;
+		//if (DEBUG_MODE) {Serial.print(c);}
+
+		// Process data
+		process(c);
+	}
+	
+	// Send command
+	send_command(headers);
 }
 
 template <typename T>
@@ -458,7 +489,7 @@ void process(char c){
 bool send_command(bool headers) {
 
    if (DEBUG_MODE) {
-     Serial.println(F("Sending command"));
+     Serial.println(F("Sending command :"));
      Serial.print(F("Command: "));
      Serial.println(command);
      Serial.print(F("State: "));
@@ -777,6 +808,29 @@ void addToBuffer(const __FlashStringHelper *toAdd){
   index = index + idx;
 }
 
+void sendBuffer(EtherCard& client) {
+	if (DEBUG_MODE) {
+		Serial.print(F("Sending buffer: "));
+		Serial.println(buffer);
+	}
+
+	memcpy(client.tcpOffset(), buffer, (index)*sizeof(char));
+	client.httpServerReply((index-1)*sizeof(char));
+
+	if (DEBUG_MODE) {
+		int i = index;
+		String tmp;
+		itoa(i, (char*)tmp.c_str(), 10);
+		String str = tmp.c_str();
+		Serial.println("Buffer index: " + str);
+		Serial.print(F("Sent buffer: "));
+		Serial.print(String(reinterpret_cast< char const* >(client.tcpOffset(), 500)));
+	}
+
+	// Reset the buffer
+	resetBuffer();
+}
+
 template <typename T>
 void sendBuffer(T& client, uint8_t chunkSize, uint8_t wait_time) {
 
@@ -796,7 +850,7 @@ void sendBuffer(T& client, uint8_t chunkSize, uint8_t wait_time) {
 
     // Send intermediate buffer
     #ifdef ADAFRUIT_CC3000_H
-    client.fastrprint(intermediate_buffer);
+		client.fastrprint(intermediate_buffer);
     #else
     client.print(intermediate_buffer);
     #endif
